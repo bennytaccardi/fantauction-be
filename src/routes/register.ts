@@ -1,19 +1,14 @@
-import { FastifyPluginAsync } from "fastify";
+// import { FastifyPluginAsync } from "fastify";
+// import { dbInstance } from "../db/init";
 
-const participatingUsers = new Set();
-let count = 0;
+// const registerRoute: FastifyPluginAsync = async (fastify) => {
+//   fastify.get("/register", { websocket: true }, async (socket, req) => {
+//     const { data, error } = await dbInstance.from("rooms").insert({
+//       client: "test",
+//     });
+//     console.log(data, error);
+//     socket.on("message", (message: any) => {});
+//   });
+// };
 
-const registerRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get("/register", { websocket: true }, (socket, req) => {
-    socket.on("message", (message: any) => {
-      participatingUsers.add(message.userId);
-      socket.send(
-        JSON.stringify({
-          playerBidValue: count,
-        })
-      );
-    });
-  });
-};
-
-export default registerRoute;
+// export default registerRoute;
