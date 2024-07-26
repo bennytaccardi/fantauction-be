@@ -19,7 +19,9 @@
     "fastify": "^4.28.1",
     "fastify-plugin": "^4.5.1",
     "fluent-json-schema": "^5.0.0",
-    "nodemon": "^3.1.4"
+    "nodemon": "^3.1.4",
+    "websocket": "^1.0.35",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@tsconfig/node20": "^20.1.4",

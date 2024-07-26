@@ -1,14 +1,62 @@
 import { FastifyPluginAsync } from "fastify";
-import { WebSocket } from "ws";
 import { BidHeader, BidMessage } from "../models/bid-message";
 import { ClientInfo } from "../types/client-info";
 import { PlayerBidSession } from "../types/player-bid-session";
 import S from "fluent-json-schema";
 import { dbInstance } from "../db/init";
+import WebSocket from "ws";
+import { appContext } from "../appContext";
 
-const timeout = 100;
+const timeout = 5;
 let timeoutHandle: NodeJS.Timeout;
 const rooms = new Map();
+const clients: Map<WebSocket, ClientInfo> = new Map();
+
+function sendMessageToGroup(
+  groupId: string,
+  clients: Map<WebSocket, ClientInfo>,
+  message: any
+) {
+  for (const [_, clientInfo] of clients) {
+    if (
+      clientInfo.groupId === groupId &&
+      clientInfo.socket.readyState === WebSocket.OPEN
+    ) {
+      clientInfo.socket.send(JSON.stringify(message));
+    }
+  }
+}
+
+async function terminateAuction(
+  groupId: string,
+  clients: Map<WebSocket, ClientInfo>,
+  auctionId: number
+) {
+  for (const [_, clientInfo] of clients) {
+    if (
+      clientInfo.groupId === groupId &&
+      clientInfo.socket.readyState === WebSocket.OPEN
+    ) {
+      const updateResult = await dbInstance
+        .from("auctions")
+        .update({ ongoing: 0 })
+        .eq("id", auctionId);
+
+      if (updateResult.error) {
+        return clientInfo.socket.close(1011, "error");
+      }
+      try {
+        const selectResult =
+          await appContext.repositories.auctionRepository.getAuctionById(
+            auctionId
+          );
+        clientInfo.socket.send(JSON.stringify(selectResult));
+      } catch (error) {
+        return clientInfo.socket.close(1011, "error");
+      }
+    }
+  }
+}
 
 export default async function bid(fastify: any, opts: any) {
   fastify.route({
@@ -44,7 +92,8 @@ export default async function bid(fastify: any, opts: any) {
     socket.on("message", async (message: string) => {
       const body: BidMessage = JSON.parse(message);
       const header: BidHeader = { teamName: req.headers.team_name };
-      const result = await dbInstance
+      clients.set(socket, { socket, groupId: body.leagueId });
+      const selectResult = await dbInstance
         .from("auctions")
         .select("*")
         .eq("league_id", body.leagueId)
@@ -52,22 +101,30 @@ export default async function bid(fastify: any, opts: any) {
         .eq("ongoing", 1)
         .lte("bid", body.bid);
 
-      if (!result.data || !result.data.length) {
+      if (!selectResult.data || !selectResult.data.length) {
         return socket.close(1011, "error");
       }
 
-      console.log(result.data);
-      const auction = result.data![0];
-      console.log(auction);
-      await dbInstance
+      const auction = selectResult.data[0];
+
+      timeoutHandle = setTimeout(async function () {
+        await terminateAuction(body.leagueId, clients, auction.id);
+      }, timeout * 1000);
+
+      const toUpdateObj = {
+        ...auction,
+        bid: +body.bid,
+        current_winning_team: header.teamName,
+      };
+
+      const updateResult = await dbInstance
         .from("auctions")
-        .update({
-          ...auction,
-          bid: +body.bid,
-          current_winning_team: header.teamName,
-        })
+        .update(toUpdateObj)
         .eq("id", auction.id);
 
+      if (!updateResult.error) {
+        sendMessageToGroup(body.leagueId, clients, toUpdateObj);
+      }
       // const session = req.testSession;
       // const data: BidMessage = JSON.parse(message);
       // const body = data.body;
@@ -81,7 +138,6 @@ export default async function bid(fastify: any, opts: any) {
       //   playerName: playerBid?.playerName ?? body.playerName,
       //   sockets: [...rooms.get(playerBidKey).sockets, socket],
       // });
-      // clients.set(socket, { socket, groupId: leagueId });
       // clearTimeout(timeoutHandle);
       // timeoutHandle = setTimeout(function () {
       //   sendMessageToGroup("test", clients, {
@@ -108,21 +164,6 @@ export default async function bid(fastify: any, opts: any) {
   });
 }
 
-// function sendMessageToGroup(
-//   groupId: string,
-//   clients: Map<WebSocket, ClientInfo>,
-//   message: any
-// ) {
-//   for (const [_, clientInfo] of clients) {
-//     if (
-//       clientInfo.groupId === groupId &&
-//       clientInfo.socket.readyState === WebSocket.OPEN
-//     ) {
-//       clientInfo.socket.send(JSON.stringify(message));
-//     }
-//   }
-// }
-
-const bidRoute: FastifyPluginAsync = async (fastify) => {
-  const clients: Map<WebSocket, ClientInfo> = new Map();
-};
+// const bidRoute: FastifyPluginAsync = async (fastify) => {
+//   const clients: Map<WebSocket, ClientInfo> = new Map();
+// };
